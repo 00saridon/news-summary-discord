@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+kakao_pending.json
+카드지출분석/
+엑셀-Gmail자동화/
+송파커뮤니티센터-정보/
+뉴스요약_문서/
+project/
