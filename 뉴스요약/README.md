@@ -20,6 +20,7 @@
 GOOGLE_GEMINI_API_KEY=your_key
 DISCORD_WEBHOOK_1=politics_url
 DISCORD_WEBHOOK_2=economy_url
+DISCORD_WEBHOOK_3=culture_url
 ```
 
 ### 2. 실행 방법
