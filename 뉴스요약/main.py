@@ -1,14 +1,16 @@
 """
-네이버 뉴스(정치/경제) Gemini 요약 및 디스코드 전송 프로그램
+네이버 뉴스(정치/경제) Gemini 요약 및 디스코드/카카오톡 전송 프로그램
 
 기능:
   - 네이버 뉴스 정치(100), 경제(101), 문화(103) 섹션 수집
   - Gemini를 통한 섹션별 요약
   - 디스코드 웹훅 1번(정치), 2번(경제), 3번(문화) 분리 전송
+  - 카카오톡 전송용 메시지를 kakao_pending.json으로 저장 (Claude MCP가 전송)
 
 사용방법:
-  python main.py                    # 기본 실행
+  python main.py                    # 기본 실행 (디스코드 전송)
   python main.py --preview          # 미리보기 (전송 안함)
+  python main.py --kakao-only       # 카카오톡용 메시지 파일 저장
 """
 
 import sys
@@ -165,16 +167,105 @@ def send_to_single_webhook(webhook_url, title, content):
         return False
 
 
+def summarize_for_kakao(news_content, category_name):
+    """카카오톡 한 단락 형식으로 요약 (2문장 + 해시태그, 160자 이내)"""
+    try:
+        api_key = os.getenv('GOOGLE_GEMINI_API_KEY')
+        if not api_key:
+            return None
+
+        client = genai.Client(api_key=api_key)
+
+        prompt = f"""다음 {category_name} 뉴스 헤드라인을 카카오톡 메시지 한 단락으로 요약하세요.
+
+{news_content}
+
+규칙:
+- 오늘의 핵심 흐름만 2문장 이내로 (총 130자 이내)
+- 마지막 줄에 핵심 키워드 해시태그 3~4개
+- 마크다운(**, ###, *, -)은 절대 사용하지 않음
+- 제목이나 부연 설명 없이 바로 요약문 시작
+
+출력 예시:
+오늘 여야는 특검 법안을 두고 강대강 대치를 이어갔다. 국방장관은 전작권 논의를 위해 방미했다.
+#여야대립 #특검 #한미동맹"""
+
+        response = client.models.generate_content(
+            model='gemini-flash-latest',
+            contents=prompt
+        )
+        logger.info(f"✅ Gemini {category_name} 카카오 요약 완료")
+        return response.text.strip()
+
+    except Exception as e:
+        logger.error(f"Gemini 카카오 요약 오류: {e}")
+        return None
+
+
+def run_kakao_summary():
+    """뉴스 수집/요약 후 kakao_pending.json에 저장 (Claude MCP가 전송)"""
+    from news_scraper import scrape_naver_news
+    from kakao_sender import save_kakao_messages
+
+    logger.info("=" * 80)
+    logger.info("카카오톡용 뉴스 요약 시작")
+    logger.info(f"실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("=" * 80)
+
+    logger.info("1단계: 뉴스 수집 중...")
+    politics_news = scrape_naver_news('100')
+    economy_news = scrape_naver_news('101')
+    culture_news = scrape_naver_news('103')
+
+    if not politics_news and not economy_news and not culture_news:
+        logger.error("뉴스 수집 실패")
+        return False
+
+    logger.info("2단계: Gemini 카카오 전용 요약 중...")
+    politics_content = "정치 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in politics_news[:10]])
+    economy_content = "경제 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in economy_news[:10]])
+    culture_content = "문화 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in culture_news[:10]])
+
+    politics_summary = summarize_for_kakao(politics_content, "정치")
+    economy_summary = summarize_for_kakao(economy_content, "경제")
+    culture_summary = summarize_for_kakao(culture_content, "문화")
+
+    if not politics_summary and not economy_summary and not culture_summary:
+        logger.error("모든 요약 실패")
+        return False
+
+    logger.info("3단계: kakao_pending.json 저장 중...")
+    date_str = datetime.now().strftime('%Y년 %m월 %d일')
+
+    messages = [f"📰 {date_str} 뉴스 요약"]
+    if politics_summary:
+        messages.append(f"⚖️ 정치\n{politics_summary}")
+    if economy_summary:
+        messages.append(f"💰 경제\n{economy_summary}")
+    if culture_summary:
+        messages.append(f"🎭 문화\n{culture_summary}")
+
+    result = save_kakao_messages(messages)
+    if result:
+        logger.info(f"✅ kakao_pending.json 저장 완료 ({len(messages)}개 메시지)")
+        return True
+    return False
+
+
 def main():
     """메인 함수"""
+    kakao_only = '--kakao-only' in sys.argv
     discord_only = '--discord-only' in sys.argv
     preview = '--preview' in sys.argv
 
     try:
-        success = run_news_summary(
-            discord_only=discord_only,
-            preview=preview
-        )
+        if kakao_only:
+            success = run_kakao_summary()
+        else:
+            success = run_news_summary(
+                discord_only=discord_only,
+                preview=preview
+            )
         return success
 
     except Exception as e:
