@@ -2,9 +2,9 @@
 네이버 뉴스(정치/경제) Gemini 요약 및 디스코드 전송 프로그램
 
 기능:
-  - 네이버 뉴스 정치(100) 및 경제(101) 섹션 수집
+  - 네이버 뉴스 정치(100), 경제(101), 문화(103) 섹션 수집
   - Gemini를 통한 섹션별 요약
-  - 디스코드 웹훅 1번(정치), 2번(경제) 분리 전송
+  - 디스코드 웹훅 1번(정치), 2번(경제), 3번(문화) 분리 전송
 
 사용방법:
   python main.py                    # 기본 실행
@@ -67,30 +67,33 @@ def run_news_summary(discord_only=False, preview=False):
     logger.info(f"실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 80)
 
-    # 1. 네이버 뉴스 수집 (정치: 100, 경제: 101)
-    logger.info("1단계: 네이버 뉴스 정치(100) 및 경제(101) 뉴스 수집 중...")
-    
+    # 1. 네이버 뉴스 수집 (정치: 100, 경제: 101, 문화: 103)
+    logger.info("1단계: 네이버 뉴스 정치(100), 경제(101), 문화(103) 뉴스 수집 중...")
+
     from news_scraper import scrape_naver_news
-    
+
     politics_news = scrape_naver_news('100')
     economy_news = scrape_naver_news('101')
-    
-    all_news_items = politics_news[:10] + economy_news[:10]
-    
+    culture_news = scrape_naver_news('103')
+
+    all_news_items = politics_news[:10] + economy_news[:10] + culture_news[:10]
+
     if not all_news_items:
         logger.error("뉴스 수집 실패")
         return False
         
     # 2. Gemini로 각각 요약
-    logger.info("2단계: 정치 및 경제 뉴스 각각 요약 중...")
-    
+    logger.info("2단계: 정치, 경제, 문화 뉴스 각각 요약 중...")
+
     politics_content = "정치 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in politics_news[:10]])
     economy_content = "경제 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in economy_news[:10]])
-    
+    culture_content = "문화 뉴스 헤드라인:\n" + "\n".join([f"- {item['title']}" for item in culture_news[:10]])
+
     politics_summary = summarize_with_gemini(politics_content, "정치")
     economy_summary = summarize_with_gemini(economy_content, "경제")
+    culture_summary = summarize_with_gemini(culture_content, "문화")
 
-    if not politics_summary and not economy_summary:
+    if not politics_summary and not economy_summary and not culture_summary:
         logger.error("뉴스 요약에 모두 실패했습니다")
         return False
 
@@ -102,6 +105,9 @@ def run_news_summary(discord_only=False, preview=False):
         print("-" * 40)
         print("경제 뉴스 요약:")
         print(economy_summary or "실패")
+        print("-" * 40)
+        print("문화 뉴스 요약:")
+        print(culture_summary or "실패")
         print("=" * 80)
         return True
 
@@ -110,17 +116,23 @@ def run_news_summary(discord_only=False, preview=False):
     
     success_politics = False
     success_economy = False
-    
+    success_culture = False
+
     if politics_summary:
         success_politics = send_to_single_webhook(os.getenv('DISCORD_WEBHOOK_1'), "⚖️ 오늘의 정치 뉴스 요약", politics_summary)
-    
+
     if economy_summary:
         success_economy = send_to_single_webhook(os.getenv('DISCORD_WEBHOOK_2'), "💰 오늘의 경제 뉴스 요약", economy_summary)
+
+    if culture_summary:
+        success_culture = send_to_single_webhook(os.getenv('DISCORD_WEBHOOK_3'), "🎭 오늘의 문화 뉴스 요약", culture_summary)
 
     if success_politics:
         logger.info("✅ 정치 뉴스 전송 완료 (웹훅 1)")
     if success_economy:
         logger.info("✅ 경제 뉴스 전송 완료 (웹훅 2)")
+    if success_culture:
+        logger.info("✅ 문화 뉴스 전송 완료 (웹훅 3)")
 
     logger.info("=" * 80)
     logger.info("모든 작업 완료!")
@@ -140,7 +152,7 @@ def send_to_single_webhook(webhook_url, title, content):
             {
                 "title": title,
                 "description": content[:4000],
-                "color": 0x3498db if "정치" in title else 0xe74c3c
+                "color": 0x3498db if "정치" in title else (0xe74c3c if "경제" in title else 0x9b59b6)
             }
         ]
     }
